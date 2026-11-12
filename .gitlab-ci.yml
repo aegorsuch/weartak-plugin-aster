@@ -84,6 +84,7 @@ ci-contract-check:
 
 native-evaluation:
   stage: native
+  needs: []
   image: rust:1.97.1-bookworm
   tags:
     - linux-canary
