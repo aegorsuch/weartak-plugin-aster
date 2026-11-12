@@ -727,8 +727,10 @@ Template SDK AARs were copied from
 - Debug AAR: `4A02C90B3BEE6A0C63337640E8FE609626B8758BE4C4D359E4EC8AC2710458D2`
 - Release AAR: `D0DC15F6F7AD7C70003C832C672483D798DF76E1968B12911AE76914B4A38B4F`
 
-The release AAR is present only to follow repository-local SDK dependency
-conventions; no release APK, production signing, or publishing path was added.
+At this initial integration stage the release AAR was present only to follow
+repository-local SDK dependency conventions; no release APK, production signing,
+or publishing path was added. The later CI work below adds a signed evaluation
+distribution path, not production readiness.
 The app and host manifests disable backup and exclude app data from cloud
 backup and device transfer. Their launcher icon uses the platform placeholder.
 
@@ -1034,3 +1036,106 @@ publication was made.
 
 Revisit production readiness only after the remaining runtime gates and a
 separate operational security review are satisfied.
+
+## Host lifecycle and signed evaluation CI (2026-11-12)
+
+Plugin service discovery no longer loads JNI on Android's service main thread.
+Android context/worker setup is independent of native availability. The bounded
+Event worker checks for an explicitly imported synthetic bundle before loading
+JNI and pinning the same private control root. A missing library, ABI, or JNI
+entry point produces a terminal failed action and host error callback instead
+of crashing service discovery or leaving the action pending. Native Event
+scope, topic, payload, receipt/reopen behavior, and dependency patches are
+unchanged. This does not start a persistent peer or create credentials.
+
+Legacy and V2 initialization share metadata validation and transition to READY.
+Host actions are rejected unless the host lifecycle is RUNNING; stopped and
+shutdown plugins cannot start new host-requested operations. Already accepted
+bounded operations are allowed to finish and close their nodes; stop is not
+native cancellation. The standalone activity still invokes the bounded worker
+directly without requiring the optional ATAK Companion or a bound WearTAK host.
+
+Source inspection pinned the current host to
+[`00290203f9a6bb09870c53f2cdac0e110ed88125`](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/tree/00290203f9a6bb09870c53f2cdac0e110ed88125)
+and current SDK to
+[`86bdc8b04797c2cf6caa30e78e796abac1c2a330`](https://git.tak.gov/weartak-plugins/weartak-plugin-sdk/-/tree/86bdc8b04797c2cf6caa30e78e796abac1c2a330).
+The host accepts API 1 and calls V2 initialization for that version. It already
+has transport/route-status extensions; no core API change is established as
+necessary by this inspection. The old bundled SDK AARs do not contain those
+transport extension classes. The plugin does not negotiate them, implement
+host chat/CoT egress/ingress, or publish route status. Replacing an AAR alone
+would not implement that transport.
+
+Local validation uses Robolectric, not a physical watch, Android emulator,
+remote Binder transaction, or actual WearTAK process. Three regression tests
+run against each debug/release SDK AAR: discovery and callback-based missing
+fixture/native failures; legacy/V2 start; and rejection before start, after
+stop, and after shutdown. The JNI-unavailable case is intentional on the JVM.
+Nine Python contracts cover publication gates, artifact/provenance tampering,
+prerelease-only publication after download verification, non-owned release
+protection, stale pipelines, credential-safe HTTPS redirects, and dependency
+notice collection. Both app and test-host lint complete with no errors;
+existing launcher/target-SDK warnings are not changed.
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest :app:testReleaseUnitTest `
+  :app:lintDebug :integration-test-host:lintDebug `
+  -x :spike:android:preBuild
+python -B -m unittest discover -s ci -p 'test_*.py' -v
+```
+
+The excluded task is the native-library presence check for **native-free JVM
+tests only**. This command does not assemble, validate, sign, or publish an APK.
+Native packaging jobs must run the normal check with real JNI libraries.
+Previous JNI artifacts/worktrees were unavailable; no prior artifact was
+silently substituted. New Android/JNI validation therefore belongs to the
+canonical pipeline, not the local JVM evidence.
+
+The CI signing/artifact model follows inspected canonical
+[Lattice `15f4a317`](https://git.tak.gov/weartak-plugins/weartak-plugin-lattice/-/tree/15f4a31798f02f0eb0d1084c0b1dab6ce013b88f)
+and [Sextant `c4e4ba05`](https://git.tak.gov/weartak-plugins/weartak-plugin-sextant/-/tree/c4e4ba0576d045485277e5de2cb907983b161750)
+patterns, with a deliberately separate evaluation channel:
+
+- Native CI rebuilds ARMv7 and ARM64 from the pinned Aster revision with Rust
+  1.97.1 and NDK r27d/API 30. It verifies upstream archive checksums, applies
+  the retained evaluation patches in scratch copies, resolves their override
+  graph there, and uses the resulting lockfile for the build. The tracked
+  portable lockfile/cache is not rewritten. Resolved dependency licenses and
+  supplied notices, the resolved lockfile, patch/AAR/JNI checksums, and project
+  notices are retained. The NDK checksum is Google's published Linux SHA1;
+  redb uses the documented SHA256.
+- Host tests/lint and real native APK assembly must pass before a protected,
+  canonical `main` push can sign. Signing consumes inherited protected
+  WearTAK CI variables without copying keys into source or artifacts; its
+  temporary keystore is removed after the job. APK checks require exactly the
+  existing WearTAK plugin signer
+  `1579b600cd84e619e76a91c2db6b031938c999bc2aad926b9a51ec2b166d348d`,
+  package/version identity, both ARM JNI libraries, and embedded legal assets.
+- Signed evaluation output is
+  `WearTAK-Plugin-Aster-0.1.0-evaluation-p<project-pipeline-IID>.apk`,
+  with checksum and source/pipeline/job/signer provenance.
+  Version code uses the project pipeline IID. This is not a production
+  version bump or operational-readiness assertion.
+- GitHub mirroring requires masked/protected `ASTER_GITHUB_TOKEN` with
+  Aster repository Contents:write, and an administrator-created fixed
+  `TAK.gov-Forge-CI-CD-Evaluation` anchor tag on the mirror. It never pushes
+  or changes source refs. Publication stays a draft until uploaded APK bytes
+  are downloaded and verified; it always remains a prerelease, never latest.
+  Existing assets are retained, and foreign/stable releases or same-pipeline
+  substitutions are refused. Release text discloses that fixed-tag source
+  archives may differ from the authoritative canonical source SHA.
+
+At configuration time the group exposed the required signing variable names,
+but actual key validity is established only by the protected signing job.
+Read-only GitHub requests with existing Sextant, LACE, and goTenna publisher
+credentials each returned HTTP 401. No token was copied or scope expanded;
+401 establishes credential rejection, not its cause. A valid publisher token
+must be supplied through
+[Aster CI/CD Variables](https://git.tak.gov/weartak-plugins/weartak-plugin-aster/-/settings/ci_cd),
+never chat/source/logs. Canonical CI lint accepted this configuration.
+
+No watch was modified in this work. Production-suitable deployment remains
+blocked on a protected provisioning/provider design, distinct durable
+per-watch identities, a native peer lifecycle/host transport adapter, real
+host trust/discovery tests, and background/resource/battery/recovery
+qualification. Signed evaluation packaging does not remove those gates.

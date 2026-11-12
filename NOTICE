@@ -1,0 +1,18 @@
+WearTAK Plugin Aster is an evaluation integration, not an operational transport.
+Original project material: GPL-3.0-or-later; see LICENSE.
+
+Aster and the adapted selected Event JNI lifecycle: Apache-2.0.
+See third_party/aster/LICENSE, THIRD_PARTY_NOTICES.md, and
+ANDROID_CONTROL_PROVENANCE.md for pinned source and evaluation patch provenance.
+
+redb portability adaptations retain upstream Apache-2.0 OR MIT licensing.
+See third_party/redb/ for both licenses and patch provenance.
+
+Bundled WearTAK SDK AAR source/provenance and hashes are recorded in
+docs/android-feasibility.md. Native dependency license metadata and supplied
+notices are collected from the resolved CI dependency graph into APK legal assets.
+
+The full-color Doug launcher mascot is a Defense Unicorns brand asset:
+https://defenseunicorns.com/brand-toolkit/
+It is not covered by this project's GPL license; no ownership of that asset
+or endorsement by Defense Unicorns is claimed.
