@@ -1082,7 +1082,8 @@ run against each debug/release SDK AAR: discovery and callback-based missing
 fixture/native failures; legacy/V2 start; and rejection before start, after
 stop, and after shutdown; plus hosted error projection and a multibyte
 subtitle budget. The JNI-unavailable case is intentional on the JVM.
-Ten Python contracts cover read-only auth preflight, publication gates, artifact/provenance tampering,
+Eleven Python contracts cover read-only auth preflight and its exact repository
+endpoint, publication gates, artifact/provenance tampering,
 prerelease-only publication after download verification, non-owned release
 protection, stale pipelines, credential-safe HTTPS redirects, and dependency
 notice collection. Both app and test-host lint complete with no errors;
@@ -1153,6 +1154,12 @@ policy was changed. Auth/signing/mirror jobs become eligible only on its
 protected canonical main push. Publisher tokens belong in
 [Aster CI/CD Variables](https://git.tak.gov/weartak-plugins/weartak-plugin-aster/-/settings/ci_cd),
 never chat/source/logs. Canonical CI lint accepted the pipeline configuration.
+
+The first protected-main preflight returned HTTP 404 because the publisher
+appended a trailing slash to the repository-root endpoint. An independent
+credential-free read reproduced HTTP 200 without that slash and HTTP 404 with
+it. The endpoint construction was corrected and regression-tested; this
+failure did not establish rejection of the injected publisher credential.
 
 No watch was modified in this work. Production-suitable deployment remains
 blocked on a protected provisioning/provider design, distinct durable
