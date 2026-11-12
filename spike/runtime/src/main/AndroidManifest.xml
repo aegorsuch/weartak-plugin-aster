@@ -1,0 +1,13 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-feature android:name="android.hardware.type.watch" android:required="true" />
+    <application
+        android:allowBackup="false"
+        android:label="Aster Evaluation Probe">
+        <meta-data android:name="com.google.android.wearable.standalone" android:value="true" />
+    </application>
+    <instrumentation
+        android:name="com.weartak.plugin.aster.spike.runtime.ProbeInstrumentation"
+        android:targetPackage="${applicationId}"
+        android:label="Evaluation-only JNI persistence probe" />
+</manifest>

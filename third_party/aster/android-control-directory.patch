@@ -1,0 +1,96 @@
+diff --git a/crates/aster-node/src/lib.rs b/crates/aster-node/src/lib.rs
+index 9b218e9..a7f9ffd 100644
+--- a/crates/aster-node/src/lib.rs
++++ b/crates/aster-node/src/lib.rs
+@@ -77,6 +77,8 @@ pub use control_admin::{
+     RevocationRequest, ScopeRekeyRequest, SelectedControlAdmin, SelectedControlHandle,
+ };
+ pub use identity::{IdentityError, NodeIdentity};
++#[cfg(target_os = "android")]
++pub use runtime::initialize_android_control_directory;
+ pub use mission::{
+     CLASSICAL_CHANNEL_BINDING_CONTEXT_BYTES, CarrierBoundClassicalMissionSession,
+     ClassicalChannelBindingContext, MissionPeerBinding, MissionProvisioningOrigin,
+diff --git a/crates/aster-node/src/runtime.rs b/crates/aster-node/src/runtime.rs
+index 9937e25..c4fb5b8 100644
+--- a/crates/aster-node/src/runtime.rs
++++ b/crates/aster-node/src/runtime.rs
+@@ -15017,11 +15017,73 @@ fn local_zeroization_control_directory_at(
+ 
+ #[cfg(unix)]
+ fn local_zeroization_control_directory_path() -> Result<PathBuf, NodeError> {
+-    let temporary_root = fs::canonicalize("/tmp")?;
+-    Ok(temporary_root.join(format!(
+-        "aster-zeroize-{}",
+-        rustix::process::geteuid().as_raw()
+-    )))
++    #[cfg(target_os = "android")]
++    {
++        let pinned = ANDROID_CONTROL_DIRECTORY.get().ok_or_else(|| {
++            NodeError::Configuration(
++                "Android control directory must be explicitly initialized".into(),
++            )
++        })?;
++        let current = local_zeroization_control_directory_at(&pinned.canonical_path, false)?;
++        if current.device != pinned.device || current.inode != pinned.inode {
++            return Err(NodeError::Configuration(
++                "Android control directory identity changed".into(),
++            ));
++        }
++        return Ok(current.canonical_path);
++    }
++    #[cfg(not(target_os = "android"))]
++    {
++        let temporary_root = fs::canonicalize("/tmp")?;
++        Ok(temporary_root.join(format!(
++            "aster-zeroize-{}",
++            rustix::process::geteuid().as_raw()
++        )))
++    }
++}
++
++#[cfg(target_os = "android")]
++static ANDROID_CONTROL_DIRECTORY: std::sync::OnceLock<LocalPathIdentity> = std::sync::OnceLock::new();
++
++/// Pins an existing owner-only application-private control directory for this process.
++/// Every node and local zeroization client must initialize the same directory.
++#[cfg(target_os = "android")]
++pub fn initialize_android_control_directory(directory: &Path) -> Result<(), NodeError> {
++    use std::os::unix::ffi::OsStrExt as _;
++
++    if !directory.is_absolute() {
++        return Err(NodeError::Configuration(
++            "Android control directory must be absolute".into(),
++        ));
++    }
++    let validated = local_zeroization_control_directory_at(directory, false)?;
++    // Reject aliases through symlink ancestors as well as a symlink at the leaf.
++    if validated.canonical_path != directory {
++        return Err(NodeError::Configuration(
++            "Android control directory must be canonical".into(),
++        ));
++    }
++    if local_zeroization_socket_path(directory, u64::MAX, u64::MAX)
++        .as_os_str()
++        .as_bytes()
++        .len()
++        >= 108
++    {
++        return Err(NodeError::Configuration(
++            "Android control directory exceeds the Unix socket pathname limit".into(),
++        ));
++    }
++    let pinned = ANDROID_CONTROL_DIRECTORY.get_or_init(|| validated);
++    let current = local_zeroization_control_directory_at(directory, false)?;
++    if current.canonical_path != pinned.canonical_path
++        || current.device != pinned.device
++        || current.inode != pinned.inode
++    {
++        return Err(NodeError::Configuration(
++            "Android control directory already pinned to another identity".into(),
++        ));
++    }
++    Ok(())
+ }
+ 
+ #[cfg(unix)]

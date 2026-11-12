@@ -1,0 +1,36 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-feature android:name="android.hardware.type.watch" android:required="true" />
+
+    <permission
+        android:name="${bindPluginPermission}"
+        android:protectionLevel="signature" />
+
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/aster_launcher"
+        android:roundIcon="@mipmap/aster_launcher"
+        android:label="@string/app_name">
+        <meta-data android:name="com.google.android.wearable.standalone" android:value="true" />
+        <activity
+            android:name=".ui.AsterPluginActivity"
+            android:exported="true"
+            android:taskAffinity="com.weartak.plugin.aster">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service
+            android:name=".service.AsterWearTakPluginService"
+            android:exported="true"
+            android:permission="${bindPluginPermission}">
+            <intent-filter>
+                <action android:name="com.weartak.plugin.action.PLUGIN_SERVICE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

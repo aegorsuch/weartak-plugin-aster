@@ -1,0 +1,11 @@
+[package]
+name = "aster-storage-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+redb = "=4.4.0"
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.190"

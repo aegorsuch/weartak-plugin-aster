@@ -1,0 +1,21 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="${bindPluginPermission}" />
+
+    <queries>
+        <intent>
+            <action android:name="com.weartak.plugin.action.PLUGIN_SERVICE" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@android:drawable/sym_def_app_icon"
+        android:label="Aster WearTAK Host Probe" />
+
+    <instrumentation
+        android:name="com.weartak.plugin.aster.hosttest.AsterWearTakHostInstrumentation"
+        android:targetPackage="${applicationId}"
+        android:label="WearTAK SDK Binder integration probe" />
+</manifest>

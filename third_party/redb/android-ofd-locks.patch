@@ -1,0 +1,140 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index d522472..e0162c0 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -143,7 +143,7 @@ version = "3.5.0"
+ version = "1.17.0"
+ features = ["v4"]
+ 
+-[target.'cfg(any(target_os = "linux", target_vendor = "apple"))'.dependencies.libc]
++[target.'cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))'.dependencies.libc]
+ version = "0.2.174"
+ 
+ [target.'cfg(target_os = "wasi")'.dependencies.libc]
+diff --git a/Cargo.toml.orig b/Cargo.toml.orig
+index d7b4d2e..1947c5d 100644
+--- a/Cargo.toml.orig
++++ b/Cargo.toml.orig
+@@ -32,7 +32,7 @@ uuid = { version= "1.17.0", optional = true }
+ libc = "0.2.174"
+ 
+ # Byte-range file locks for the multi-process locking protocol; std exposes only whole-file locks
+-[target.'cfg(any(target_os = "linux", target_vendor = "apple"))'.dependencies]
++[target.'cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))'.dependencies]
+ libc = "0.2.174"
+ 
+ # Common test/bench dependencies
+diff --git a/src/tree_store/page_store/file_backend/range_lock.rs b/src/tree_store/page_store/file_backend/range_lock.rs
+index b3d90ed..357c9ed 100644
+--- a/src/tree_store/page_store/file_backend/range_lock.rs
++++ b/src/tree_store/page_store/file_backend/range_lock.rs
+@@ -1,13 +1,14 @@
+ use std::fs::File;
+ use std::io;
+-#[cfg(any(target_os = "linux", target_vendor = "apple", windows))]
++#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple", windows))]
+ use std::ops::Bound;
+ use std::ops::RangeBounds;
+-#[cfg(any(target_os = "linux", target_vendor = "apple"))]
++#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+ use std::os::unix::io::AsRawFd;
+ 
+ #[cfg(any(
+     all(target_os = "linux", not(target_env = "gnu")),
++    target_os = "android",
+     target_vendor = "apple"
+ ))]
+ use libc::flock as Flock;
+@@ -53,10 +54,10 @@ fn unsupported() -> io::Error {
+     )
+ }
+ 
+-#[cfg(not(any(target_os = "linux", target_vendor = "apple", windows)))]
++#[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple", windows)))]
+ impl RangeLock for File {}
+ 
+-#[cfg(any(target_os = "linux", target_vendor = "apple", windows))]
++#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple", windows))]
+ fn checked_range(range: impl RangeBounds<u64>) -> io::Result<(u64, u64)> {
+     let invalid = || {
+         io::Error::new(
+@@ -80,7 +81,7 @@ fn checked_range(range: impl RangeBounds<u64>) -> io::Result<(u64, u64)> {
+     if end.is_some_and(|end| start >= end) {
+         return Err(invalid());
+     }
+-    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
++    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+     if end.is_some_and(|end| end - 1 > i64::MAX as u64) {
+         return Err(invalid());
+     }
+@@ -307,7 +308,7 @@ mod windows_imp {
+ }
+ 
+ // The lock-type constants are c_int on Linux and already c_short on the Apple platforms
+-#[cfg(target_os = "linux")]
++#[cfg(any(target_os = "linux", target_os = "android"))]
+ fn lock_type(kind: libc::c_int) -> libc::c_short {
+     kind.try_into().unwrap()
+ }
+@@ -317,7 +318,7 @@ fn lock_type(kind: libc::c_short) -> libc::c_short {
+     kind
+ }
+ 
+-#[cfg(any(target_os = "linux", target_vendor = "apple"))]
++#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+ fn flock_struct(kind: libc::c_short, range: impl RangeBounds<u64>) -> io::Result<Flock> {
+     let (start, len) = checked_range(range)?;
+     let invalid = || io::Error::new(io::ErrorKind::InvalidInput, "unrepresentable lock range");
+@@ -354,6 +355,7 @@ fn fcntl_lock(file: &File, command: libc::c_int, lock: &mut Flock) -> libc::c_lo
+ 
+ #[cfg(any(
+     all(target_os = "linux", not(target_env = "gnu")),
++    target_os = "android",
+     target_vendor = "apple"
+ ))]
+ fn fcntl_lock(file: &File, command: libc::c_int, lock: &mut Flock) -> libc::c_int {
+@@ -365,7 +367,7 @@ fn fcntl_lock(file: &File, command: libc::c_int, lock: &mut Flock) -> libc::c_in
+ /// locks; ENOSYS, ENOTSUP and EOPNOTSUPP are `Unsupported` as std classifies them. Not ENOLCK,
+ /// which is a lock refused (the lock table is full, or a remote locking protocol failed): an
+ /// open that went on without it could share the file with another process
+-#[cfg(any(target_os = "linux", target_vendor = "apple"))]
++#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+ fn lock_error() -> io::Error {
+     let err = io::Error::last_os_error();
+     if matches!(err.raw_os_error(), Some(code) if code == libc::EINVAL
+@@ -381,7 +383,7 @@ fn lock_error() -> io::Error {
+ // Retried on EINTR, which is the caller's signal handler having run, not a failure to take the
+ // lock: while the blocking command waited, or before any of the others checked or acquired the
+ // lock, which Linux documents as most likely over NFS
+-#[cfg(any(target_os = "linux", target_vendor = "apple"))]
++#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+ fn fcntl_lock_retrying(file: &File, command: libc::c_int, lock: &mut Flock) -> io::Result<()> {
+     loop {
+         if fcntl_lock(file, command, lock) == 0 {
+@@ -394,7 +396,7 @@ fn fcntl_lock_retrying(file: &File, command: libc::c_int, lock: &mut Flock) -> i
+     }
+ }
+ 
+-#[cfg(any(target_os = "linux", target_vendor = "apple"))]
++#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+ fn set_lock(file: &File, exclusive: bool, range: impl RangeBounds<u64>) -> io::Result<bool> {
+     let kind = lock_type(if exclusive {
+         libc::F_WRLCK
+@@ -411,7 +413,7 @@ fn set_lock(file: &File, exclusive: bool, range: impl RangeBounds<u64>) -> io::R
+     }
+ }
+ 
+-#[cfg(any(target_os = "linux", target_vendor = "apple"))]
++#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+ fn set_lock_blocking(file: &File, exclusive: bool, range: impl RangeBounds<u64>) -> io::Result<()> {
+     let kind = lock_type(if exclusive {
+         libc::F_WRLCK
+@@ -422,7 +424,7 @@ fn set_lock_blocking(file: &File, exclusive: bool, range: impl RangeBounds<u64>)
+     fcntl_lock_retrying(file, libc::F_OFD_SETLKW, &mut lock)
+ }
+ 
+-#[cfg(any(target_os = "linux", target_vendor = "apple"))]
++#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+ impl RangeLock for File {
+     fn try_lock_range(&self, range: impl RangeBounds<u64>) -> io::Result<bool> {
+         set_lock(self, true, range)

@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">WearTAK Aster Evaluation</string>
+    <string name="screen_title">WearTAK Aster Evaluation</string>
+    <string name="evaluation_warning">Evaluation only. Import synthetic fixture before publishing.</string>
+    <string name="publish_button">Publish / verify synthetic Event</string>
+    <string name="waiting_for_host">Waiting for host.</string>
+    <string name="event_id_label">Event ID: %1$s</string>
+    <string name="initialization_failed">Aster initialization failed: %1$s</string>
+</resources>

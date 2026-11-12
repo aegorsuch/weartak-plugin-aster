@@ -1,0 +1,15 @@
+diff --git a/src/tree_store/page_store/file_backend/range_lock.rs b/src/tree_store/page_store/file_backend/range_lock.rs
+--- a/src/tree_store/page_store/file_backend/range_lock.rs
++++ b/src/tree_store/page_store/file_backend/range_lock.rs
+@@ -9,8 +9,10 @@
+ #[cfg(any(
+     all(target_os = "linux", not(target_env = "gnu")),
+-    target_os = "android",
++    all(target_os = "android", target_pointer_width = "64"),
+     target_vendor = "apple"
+ ))]
+ use libc::flock as Flock;
++#[cfg(all(target_os = "android", target_pointer_width = "32"))]
++use libc::flock64 as Flock;
+ #[cfg(all(target_os = "linux", target_env = "gnu"))]
+ use libc::flock64 as Flock;

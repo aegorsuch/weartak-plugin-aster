@@ -1,0 +1,28 @@
+[package]
+name = "weartak-aster-spike"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[features]
+android-control-evaluation = []
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+aster-node = { git = "https://github.com/defenseunicorns/aster", rev = "d8b8e4141fc6b1accc6f183e6ad65d03bc3b0679" }
+jni = "=0.21.1"
+tokio = { version = "=1.53.3", features = ["rt-multi-thread", "net", "time"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+iroh = { version = "=1.3.0", default-features = false, features = ["tls-ring"] }
+jni22 = { package = "jni", version = "=0.22.4" }
+once_cell = "=1.21.4"
+rustls-platform-verifier = "=0.7.1"
+
+[dev-dependencies]
+aster-mesh = { package = "aster-core", git = "https://github.com/defenseunicorns/aster", rev = "d8b8e4141fc6b1accc6f183e6ad65d03bc3b0679", default-features = false, features = ["reference-session", "test-utils"] }
+
+[patch.crates-io]
+netlink-packet-core = { git = "https://github.com/defenseunicorns/aster", rev = "d8b8e4141fc6b1accc6f183e6ad65d03bc3b0679" }
