@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -113,6 +114,20 @@ class ReleaseTest(unittest.TestCase):
         ):
             self.assertEqual(0, release.main())
         self.assertEqual([], api.writes)
+
+    def test_repository_preflight_uses_canonical_root_endpoint(self):
+        api = release.GitHub("synthetic-not-a-credential")
+        with patch.object(api.opener, "open") as opened:
+            opened.return_value = io.BytesIO(json.dumps({
+                "full_name": release.REPO, "archived": False, "disabled": False,
+            }).encode())
+            release.verify_repository(api)
+        request = opened.call_args.args[0]
+        self.assertEqual("GET", request.get_method())
+        self.assertEqual(
+            "https://api.github.com/repos/aegorsuch/weartak-plugin-aster",
+            request.full_url,
+        )
 
     def test_publication_stays_draft_until_download_verified_and_is_always_prerelease(self):
         api = FakeGitHub(self.apk, self.digest)

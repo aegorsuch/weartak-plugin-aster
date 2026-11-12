@@ -51,7 +51,8 @@ class GitHub:
             if not binary:
                 data = json.dumps(data).encode()
         request = urllib.request.Request(
-            f"{host}/repos/{REPO}/{path}", data=data, headers=headers, method=method,
+            f"{host}/repos/{REPO}" + (f"/{path}" if path else ""),
+            data=data, headers=headers, method=method,
         )
         try:
             with self.opener.open(request, timeout=120) as response:
