@@ -82,6 +82,14 @@ ci-contract-check:
   script:
     - python -B -m unittest discover -s ci -p 'test_*.py' -v
 
+github-auth-check:
+  stage: verify
+  image: python:3.12-slim
+  script:
+    - python ci/publish_github_release.py --check-auth
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "weartak-plugins/weartak-plugin-aster" && $CI_COMMIT_BRANCH == "main" && $CI_DEFAULT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'
+
 native-evaluation:
   stage: native
   needs: []

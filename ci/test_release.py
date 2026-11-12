@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -100,6 +101,18 @@ class ReleaseTest(unittest.TestCase):
         self.apk.write_bytes(b"modified binary")
         with self.assertRaises(release.PublishError):
             release.artifact(self.root, STATE)
+
+    def test_auth_preflight_does_not_read_artifacts_or_publish(self):
+        api = FakeGitHub(self.apk, self.digest)
+        with (
+            patch.object(release, "configuration", return_value=STATE),
+            patch.object(release, "GitHub", return_value=api),
+            patch.object(release, "artifact", side_effect=AssertionError("Artifact read in auth check")),
+            patch.dict(os.environ, {"ASTER_GITHUB_TOKEN": "synthetic-not-a-credential"}),
+            patch("sys.argv", ["publish_github_release.py", "--check-auth"]),
+        ):
+            self.assertEqual(0, release.main())
+        self.assertEqual([], api.writes)
 
     def test_publication_stays_draft_until_download_verified_and_is_always_prerelease(self):
         api = FakeGitHub(self.apk, self.digest)

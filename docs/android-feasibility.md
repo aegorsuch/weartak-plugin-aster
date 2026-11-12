@@ -1082,7 +1082,7 @@ run against each debug/release SDK AAR: discovery and callback-based missing
 fixture/native failures; legacy/V2 start; and rejection before start, after
 stop, and after shutdown; plus hosted error projection and a multibyte
 subtitle budget. The JNI-unavailable case is intentional on the JVM.
-Nine Python contracts cover publication gates, artifact/provenance tampering,
+Ten Python contracts cover read-only auth preflight, publication gates, artifact/provenance tampering,
 prerelease-only publication after download verification, non-owned release
 protection, stale pipelines, credential-safe HTTPS redirects, and dependency
 notice collection. Both app and test-host lint complete with no errors;
@@ -1138,12 +1138,21 @@ patterns, with a deliberately separate evaluation channel:
 
 At configuration time the group exposed the required signing variable names,
 but actual key validity is established only by the protected signing job.
-Read-only GitHub requests with existing Sextant, LACE, and goTenna publisher
-credentials each returned HTTP 401. No token was copied or scope expanded;
-401 establishes credential rejection, not its cause. A valid publisher token
-must be supplied through
+GitLab reports the publisher variables as hidden and returns empty API values.
+Earlier direct-shell HTTP 401 probes therefore sent an empty bearer and did
+**not** test the user's actual credentials. No token was copied or scope
+expanded. `ASTER_GITHUB_TOKEN` is configured masked/protected/hidden; its
+actual validity must be checked by `github-auth-check` using normal protected
+CI secret injection, not by trying to extract hidden API values. That job
+makes only an authenticated repository read; Contents:write is established
+only by the intended later publication. At inspection time `main` was
+unprotected. The user subsequently authorized protecting this repository's
+`main`: direct pushes disabled, Maintainers allowed to merge, force pushes
+disabled. Those exact rules were applied and read back; no other repository
+policy was changed. Auth/signing/mirror jobs become eligible only on its
+protected canonical main push. Publisher tokens belong in
 [Aster CI/CD Variables](https://git.tak.gov/weartak-plugins/weartak-plugin-aster/-/settings/ci_cd),
-never chat/source/logs. Canonical CI lint accepted this configuration.
+never chat/source/logs. Canonical CI lint accepted the pipeline configuration.
 
 No watch was modified in this work. Production-suitable deployment remains
 blocked on a protected provisioning/provider design, distinct durable

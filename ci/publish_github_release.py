@@ -140,11 +140,15 @@ def artifact(root, state):
     return apk, digest
 
 
-def publish(api, state, apk, digest):
+def verify_repository(api):
     repo = api.request("GET", "")
     if (repo.get("full_name") != REPO or repo.get("archived") is not False
             or repo.get("disabled") is not False):
         raise PublishError("Destination is not the active, approved Aster mirror.")
+
+
+def publish(api, state, apk, digest):
+    verify_repository(api)
     if not api.request("GET", f"git/ref/tags/{TAG}", missing_ok=True):
         raise PublishError(f"Pre-create {TAG} on the GitHub mirror; no source refs are modified.")
     release = api.request("GET", f"releases/tags/{TAG}", missing_ok=True)
@@ -202,10 +206,18 @@ def publish(api, state, apk, digest):
 
 
 def main():
+    if sys.argv[1:] not in ([], ["--check-auth"]):
+        print("Expected no arguments or --check-auth.", file=sys.stderr)
+        return 2
     try:
         state = configuration(os.environ)
-        apk, digest = artifact(Path.cwd(), state)
-        publish(GitHub(os.environ["ASTER_GITHUB_TOKEN"]), state, apk, digest)
+        api = GitHub(os.environ["ASTER_GITHUB_TOKEN"])
+        if sys.argv[1:] == ["--check-auth"]:
+            verify_repository(api)
+            print("Aster GitHub authenticated repository read verified; no publication performed.")
+        else:
+            apk, digest = artifact(Path.cwd(), state)
+            publish(api, state, apk, digest)
     except (PublishError, OSError, ValueError, KeyError) as error:
         # Only known local errors/protocol checks, never raw HTTP bodies or request credentials.
         if isinstance(error, PublishError):
