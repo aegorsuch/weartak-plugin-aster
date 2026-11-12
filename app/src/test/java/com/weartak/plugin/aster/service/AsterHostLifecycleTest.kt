@@ -81,6 +81,17 @@ class AsterHostLifecycleTest {
         )
     }
 
+    @Test
+    fun hostedSchemaReflectsCurrentErrorsWithinUtf8Budget() {
+        val binder = boundPlugin()
+        val message = "\u20ac".repeat(300)
+        AsterPluginRuntime.rejectAction("invalid", message)
+        val subtitle = binder.mainUiSchema.cards.first { it.cardId == "aster-status" }.subtitle!!
+        assertTrue(subtitle.toByteArray(Charsets.UTF_8).size <= 256)
+        assertTrue(message.startsWith(subtitle))
+        assertTrue(subtitle.isNotEmpty())
+    }
+
     private fun assertTerminalFailure(withFixture: Boolean, expectedMessage: String) {
         val context = RuntimeEnvironment.getApplication()
         AsterPluginRuntime.initialize(context)
@@ -117,6 +128,8 @@ class AsterHostLifecycleTest {
             assertEquals("failed", state.getString("action_state"))
             assertTrue(state.getString("last_message")!!.contains(expectedMessage))
             assertTrue(reported.get()!!.message.contains(expectedMessage))
+            val hostedStatus = binder.mainUiSchema.cards.first { it.cardId == "aster-status" }
+            assertEquals(state.getString("last_message"), hostedStatus.subtitle)
         } finally {
             binder.shutdownPlugin()
             if (withFixture) assertTrue(bundle.delete())

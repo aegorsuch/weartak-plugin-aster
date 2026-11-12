@@ -40,33 +40,6 @@ class AsterWearTakPluginBinder(
 
     private val guard by lazy { PluginBinderGuard(TAG, lifecycle) }
 
-    private val rawMainUiSchema = PluginMainUiSchemaParcel(
-        cards = listOf(
-            MainUiCardParcel(
-                cardType = MainUiCardTypes.STATUS,
-                cardId = "aster-status",
-                title = "Aster Event",
-                subtitle = "Evaluation-only local persistence",
-            ),
-            MainUiCardParcel(
-                cardType = MainUiCardTypes.KEY_VALUE_LIST,
-                cardId = "aster-event",
-                title = "Latest Event",
-                subtitle = "Synthetic fixture only",
-            ),
-        ),
-    )
-
-    private val mainUiSchema = when (
-        val result = MainUiSchemaContractValidator.validate(
-            rawMainUiSchema,
-            strictV1CardTypesOnly = true,
-        )
-    ) {
-        is ContractValidationResult.Ok -> result.value
-        is ContractValidationResult.Err -> MainUiSchemaContractValidator.sanitize(rawMainUiSchema)
-    }
-
     override fun getPluginInfo() = PluginInfoParcel(
         pluginId = BuildConfig.APPLICATION_ID,
         displayName = "WearTAK Aster Evaluation",
@@ -209,9 +182,48 @@ class AsterWearTakPluginBinder(
         }
     }
 
-    override fun getMainUiSchema() = mainUiSchema
+    override fun getMainUiSchema(): PluginMainUiSchemaParcel {
+        val state = AsterPluginRuntime.getMainUiState()
+        val schema = PluginMainUiSchemaParcel(
+            cards = listOf(
+                MainUiCardParcel(
+                    cardType = MainUiCardTypes.STATUS,
+                    cardId = "aster-status",
+                    title = "Aster Event (evaluation)",
+                    subtitle = state.getString("last_message")?.let {
+                        hostedSubtitle(it)
+                    },
+                ),
+                MainUiCardParcel(
+                    cardType = MainUiCardTypes.KEY_VALUE_LIST,
+                    cardId = "aster-event",
+                    title = "Latest Local Event",
+                    subtitle = state.getString("event_id") ?: "No local Event committed.",
+                ),
+            ),
+        )
+        return when (
+            val result = MainUiSchemaContractValidator.validate(
+                schema,
+                strictV1CardTypesOnly = true,
+            )
+        ) {
+            is ContractValidationResult.Ok -> result.value
+            is ContractValidationResult.Err -> MainUiSchemaContractValidator.sanitize(schema)
+        }
+    }
 
     override fun getMainUiState() = AsterPluginRuntime.getMainUiState()
+
+    private fun hostedSubtitle(message: String): String {
+        val bytes = message.toByteArray(Charsets.UTF_8)
+        var end = minOf(bytes.size, WearTakPluginContract.MAX_MAIN_UI_TITLE_BYTES)
+        // The bundled SDK's helper can retain a partial leading byte at this boundary.
+        while (end > 0 && end < bytes.size && bytes[end].toInt() and 0xc0 == 0x80) {
+            end--
+        }
+        return String(bytes, 0, end, Charsets.UTF_8)
+    }
 
     override fun invokeMainUiAction(actionId: String?, args: Bundle?) {
         guard.command(

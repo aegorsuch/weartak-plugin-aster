@@ -1066,11 +1066,22 @@ transport extension classes. The plugin does not negotiate them, implement
 host chat/CoT egress/ingress, or publish route status. Replacing an AAR alone
 would not implement that transport.
 
+The current host renders STATUS/KEY_VALUE_LIST titles/subtitles rather than
+the plugin's arbitrary state keys. Schema queries now project the current
+message and latest local Event ID into those rendered fields. The existing
+main-UI-state callback already triggers schema refresh in the inspected host.
+Messages fit the SDK's 256-byte subtitle budget without splitting UTF8.
+The bundled SDK truncation helper retained a partial leading byte in the
+multibyte regression; a local boundary check avoids that defect without
+changing the SDK/core. Cards retain an explicit evaluation label and do not imply peer
+delivery; no hosted action buttons or transport settings are invented.
+
 Local validation uses Robolectric, not a physical watch, Android emulator,
-remote Binder transaction, or actual WearTAK process. Three regression tests
+remote Binder transaction, or actual WearTAK process. Four regression tests
 run against each debug/release SDK AAR: discovery and callback-based missing
 fixture/native failures; legacy/V2 start; and rejection before start, after
-stop, and after shutdown. The JNI-unavailable case is intentional on the JVM.
+stop, and after shutdown; plus hosted error projection and a multibyte
+subtitle budget. The JNI-unavailable case is intentional on the JVM.
 Nine Python contracts cover publication gates, artifact/provenance tampering,
 prerelease-only publication after download verification, non-owned release
 protection, stale pipelines, credential-safe HTTPS redirects, and dependency
