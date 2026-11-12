@@ -36,7 +36,7 @@ stages:
       set -euo pipefail
       test "$(uname -m)" = "x86_64"
       apt-get update -qq
-      apt-get install -y --no-install-recommends ca-certificates curl unzip
+      apt-get install -y --no-install-recommends ca-certificates curl git unzip
       curl --fail --silent --show-error --location --retry 3 \
         --output /tmp/android-command-line-tools.zip \
         https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
