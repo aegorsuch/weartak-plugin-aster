@@ -1,0 +1,164 @@
+include:
+  - project: devsecops/gitlab-ci-common
+    ref: master
+    file: /template/artifactory_token_service.yml
+
+before_script: []
+
+variables:
+  KUBERNETES_MEMORY_LIMIT: "8Gi"
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
+
+stages:
+  - verify
+  - native
+  - validate
+  - release
+  - publish
+
+.android:
+  image: eclipse-temurin:17-jdk-jammy
+  tags:
+    - linux-canary
+  timeout: 45 minutes
+  variables:
+    ANDROID_HOME: "$CI_PROJECT_DIR/.android-sdk"
+    ANDROID_COMMAND_LINE_TOOLS_SHA256: "2d2d50857e4eb553af5a6dc3ad507a17adf43d115264b1afc116f95c92e5e258"
+  before_script:
+    - |
+      set -euo pipefail
+      test "$(uname -m)" = "x86_64"
+      apt-get update -qq
+      apt-get install -y --no-install-recommends ca-certificates curl unzip
+      curl --fail --silent --show-error --location --retry 3 \
+        --output /tmp/android-command-line-tools.zip \
+        https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+      echo "$ANDROID_COMMAND_LINE_TOOLS_SHA256  /tmp/android-command-line-tools.zip" | sha256sum --check --strict
+      mkdir -p "$ANDROID_HOME/cmdline-tools"
+      unzip -q /tmp/android-command-line-tools.zip -d "$ANDROID_HOME/cmdline-tools"
+      mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+      rm /tmp/android-command-line-tools.zip
+      SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+      "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses <<< "$(printf 'y\n%.0s' {1..100})"
+      "$SDKMANAGER" --sdk_root="$ANDROID_HOME" "platforms;android-34" "build-tools;34.0.0"
+
+.artifactory:
+  extends: .artifactory_service_create_token_bash
+  before_script:
+    - !reference [.artifactory_service_create_token_bash, before_script]
+    - export ARTIFACTORY_USER="$GITLAB_USER_EMAIL" ARTIFACTORY_PASSWORD="$CI_JOB_ARTIFACTORY_TOKEN"
+
+host-contract-check:
+  extends: [.android, .artifactory]
+  stage: verify
+  before_script:
+    - !reference [.artifactory, before_script]
+    - !reference [.android, before_script]
+  script:
+    # JVM checks only. Do not assemble or publish an APK without validated JNI.
+    - bash gradlew --no-daemon --console=plain :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintDebug :integration-test-host:lintDebug -x :spike:android:preBuild
+  artifacts:
+    when: always
+    expire_in: 14 days
+    reports:
+      junit:
+        - app/build/test-results/testDebugUnitTest/TEST-*.xml
+        - app/build/test-results/testReleaseUnitTest/TEST-*.xml
+    paths:
+      - app/build/reports/tests/
+      - app/build/reports/lint-results-*
+      - integration-test-host/build/reports/lint-results-*
+
+ci-contract-check:
+  stage: verify
+  image: python:3.12-slim
+  script:
+    - python -B -m unittest discover -s ci -p 'test_*.py' -v
+
+github-auth-check:
+  stage: verify
+  image: python:3.12-slim
+  script:
+    - python ci/publish_github_release.py --check-auth
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "weartak-plugins/weartak-plugin-aster" && $CI_COMMIT_BRANCH == "main" && $CI_DEFAULT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'
+
+native-evaluation:
+  stage: native
+  needs: []
+  image: rust:1.97.1-bookworm
+  tags:
+    - linux-canary
+  timeout: 3 hours
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends ca-certificates curl git unzip python3
+  script:
+    - bash ci/build_native.sh
+  artifacts:
+    expire_in: 7 days
+    paths:
+      - build/jni/
+      - build/native-notices/
+      - build/native-inputs.sha256
+
+validate-plugin:
+  extends: [.android, .artifactory]
+  stage: validate
+  before_script:
+    - !reference [.artifactory, before_script]
+    - !reference [.android, before_script]
+  dependencies:
+    - native-evaluation
+  script:
+    - sha256sum --check build/native-inputs.sha256
+    - bash gradlew --no-daemon --console=plain :app:assembleDebug :app:lintDebug :app:lintRelease :integration-test-host:assembleDebug :integration-test-host:lintDebug :spike:runtime:lintDebug "-PasterJniLibsDir=$CI_PROJECT_DIR/build/jni"
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - app/build/reports/lint-results-*
+      - integration-test-host/build/reports/lint-results-*
+
+main-evaluation-release:
+  extends: [.android, .artifactory]
+  stage: release
+  dependencies:
+    - native-evaluation
+  before_script:
+    - !reference [.artifactory, before_script]
+    - !reference [.android, before_script]
+    - export WEARTAK_RELEASE_KEYSTORE_FILE="$CI_PROJECT_DIR/app/weartak.keystore"
+    - sh ci/prepare_signing.sh
+  script:
+    - sha256sum --check build/native-inputs.sha256
+    - bash gradlew --no-daemon --console=plain :app:assembleRelease "-PasterJniLibsDir=$CI_PROJECT_DIR/build/jni"
+    - bash ci/package_release.sh
+  after_script:
+    - rm -f -- "$CI_PROJECT_DIR/app/weartak.keystore"
+  artifacts:
+    when: on_success
+    expire_in: 30 days
+    paths:
+      - app/build/outputs/aster/release/
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "weartak-plugins/weartak-plugin-aster" && $CI_COMMIT_BRANCH == "main" && $CI_DEFAULT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'
+
+publish-github-evaluation:
+  stage: publish
+  image: python:3.12-slim
+  dependencies:
+    - main-evaluation-release
+  resource_group: aster-github-evaluation
+  interruptible: false
+  script:
+    - python ci/publish_github_release.py
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "weartak-plugins/weartak-plugin-aster" && $CI_COMMIT_BRANCH == "main" && $CI_DEFAULT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'

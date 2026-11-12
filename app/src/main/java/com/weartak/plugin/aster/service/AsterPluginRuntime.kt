@@ -37,6 +37,7 @@ object AsterPluginRuntime {
     private var lastMessage = "Waiting for WearTAK host."
     private var lastEventId: String? = null
     private var actionPending = false
+    private var nativeInitialized = false
 
     fun initialize(context: Context) {
         val application = context.applicationContext
@@ -47,22 +48,6 @@ object AsterPluginRuntime {
                     "Aster runtime already initialized for a different app-private directory."
                 }
                 return
-            }
-
-            AsterProbe.initialize(application)
-            val control = File(application.filesDir, "c")
-            if (!control.exists()) {
-                Os.mkdir(control.path, OWNER_ONLY_DIRECTORY_MODE)
-            }
-            check(!Files.isSymbolicLink(control.toPath())) {
-                "Aster control root must not be a symlink."
-            }
-            check(Os.stat(control.path).st_mode and FILE_MODE_MASK == OWNER_ONLY_DIRECTORY_MODE) {
-                "Aster control root must have owner-only permissions."
-            }
-            val controlPath = control.toPath().toRealPath().toString()
-            check(AsterProbe.configureControlDirectory(controlPath) == CONTROL_DIRECTORY_PINNED) {
-                "Aster control root was not pinned."
             }
 
             appContext = application
@@ -117,7 +102,7 @@ object AsterPluginRuntime {
             val worker = executor
             when {
                 context == null -> {
-                    rejectActionLocked(actionId, "Aster native runtime is not initialized.")
+                    rejectActionLocked(actionId, "Aster plugin runtime is not initialized.")
                     null
                 }
                 actionPending -> {
@@ -157,6 +142,14 @@ object AsterPluginRuntime {
                     notifyHost()
                 } catch (error: Exception) {
                     completeFailure(ACTION_PUBLISH_EVENT, error)
+                } catch (error: LinkageError) {
+                    completeFailure(
+                        ACTION_PUBLISH_EVENT,
+                        IllegalStateException(
+                            "Aster native runtime is unavailable for this installation; " +
+                                "Event operation failed.",
+                        ),
+                    )
                 }
             }
         } catch (error: RejectedExecutionException) {
@@ -183,6 +176,7 @@ object AsterPluginRuntime {
         check(bundle.isFile) {
             "App-private synthetic reference.bundle missing; no operational provisioning is bundled."
         }
+        initializeNative(context)
         val state = File(root, "plugin-state")
         val journal = File(state, "weartak-spike-publication.redb")
         val receipt = File(root, "plugin-event-id")
@@ -218,6 +212,27 @@ object AsterPluginRuntime {
             StandardCopyOption.REPLACE_EXISTING,
         )
         return eventId
+    }
+
+    private fun initializeNative(context: Context) {
+        // Only the single Event worker loads JNI; host discovery must not depend on native startup.
+        if (nativeInitialized) return
+        AsterProbe.initialize(context)
+        val control = File(context.filesDir, "c")
+        if (!control.exists()) {
+            Os.mkdir(control.path, OWNER_ONLY_DIRECTORY_MODE)
+        }
+        check(!Files.isSymbolicLink(control.toPath())) {
+            "Aster control root must not be a symlink."
+        }
+        check(Os.stat(control.path).st_mode and FILE_MODE_MASK == OWNER_ONLY_DIRECTORY_MODE) {
+            "Aster control root must have owner-only permissions."
+        }
+        val controlPath = control.toPath().toRealPath().toString()
+        check(AsterProbe.configureControlDirectory(controlPath) == CONTROL_DIRECTORY_PINNED) {
+            "Aster control root was not pinned."
+        }
+        nativeInitialized = true
     }
 
     private fun completeFailure(actionId: String, error: Exception) {

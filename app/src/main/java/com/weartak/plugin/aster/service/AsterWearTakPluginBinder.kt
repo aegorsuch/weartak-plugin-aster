@@ -20,6 +20,7 @@ import com.weartak.plugin.sdk.model.PluginErrorCodes
 import com.weartak.plugin.sdk.model.PluginErrorParcel
 import com.weartak.plugin.sdk.model.PluginInfoParcel
 import com.weartak.plugin.sdk.model.PluginInitParcel
+import com.weartak.plugin.sdk.model.PluginLifecycleState
 import com.weartak.plugin.sdk.model.PluginMainUiSchemaParcel
 import com.weartak.plugin.sdk.model.PluginStatusParcel
 import com.weartak.plugin.sdk.model.SettingsApplyMode
@@ -38,33 +39,6 @@ class AsterWearTakPluginBinder(
     private var hostCallback: IWearTakHostCallback? = null
 
     private val guard by lazy { PluginBinderGuard(TAG, lifecycle) }
-
-    private val rawMainUiSchema = PluginMainUiSchemaParcel(
-        cards = listOf(
-            MainUiCardParcel(
-                cardType = MainUiCardTypes.STATUS,
-                cardId = "aster-status",
-                title = "Aster Event",
-                subtitle = "Evaluation-only local persistence",
-            ),
-            MainUiCardParcel(
-                cardType = MainUiCardTypes.KEY_VALUE_LIST,
-                cardId = "aster-event",
-                title = "Latest Event",
-                subtitle = "Synthetic fixture only",
-            ),
-        ),
-    )
-
-    private val mainUiSchema = when (
-        val result = MainUiSchemaContractValidator.validate(
-            rawMainUiSchema,
-            strictV1CardTypesOnly = true,
-        )
-    ) {
-        is ContractValidationResult.Ok -> result.value
-        is ContractValidationResult.Err -> MainUiSchemaContractValidator.sanitize(rawMainUiSchema)
-    }
 
     override fun getPluginInfo() = PluginInfoParcel(
         pluginId = BuildConfig.APPLICATION_ID,
@@ -89,7 +63,7 @@ class AsterWearTakPluginBinder(
     }
 
     override fun initializePlugin(init: PluginInitParcel?, pluginControl: IWearTakPluginControl?) {
-        Log.w(TAG, "legacy initializePlugin ignored; host should use initializePluginV2")
+        initializeHost("initializePlugin", init)
     }
 
     override fun initializePluginV2(
@@ -97,9 +71,13 @@ class AsterWearTakPluginBinder(
         pluginControl: IWearTakPluginControl?,
         pluginControlV2: IWearTakPluginHostControlV2?,
     ) {
+        initializeHost("initializePluginV2", init)
+    }
+
+    private fun initializeHost(operation: String, init: PluginInitParcel?) {
         guard.command(
-            operation = "initializePluginV2",
-            onShutdown = { emitIllegalState("initializePluginV2") },
+            operation = operation,
+            onShutdown = { emitIllegalState(operation) },
         ) {
             if (init != null) {
                 when (
@@ -204,16 +182,60 @@ class AsterWearTakPluginBinder(
         }
     }
 
-    override fun getMainUiSchema() = mainUiSchema
+    override fun getMainUiSchema(): PluginMainUiSchemaParcel {
+        val state = AsterPluginRuntime.getMainUiState()
+        val schema = PluginMainUiSchemaParcel(
+            cards = listOf(
+                MainUiCardParcel(
+                    cardType = MainUiCardTypes.STATUS,
+                    cardId = "aster-status",
+                    title = "Aster Event (evaluation)",
+                    subtitle = state.getString("last_message")?.let {
+                        hostedSubtitle(it)
+                    },
+                ),
+                MainUiCardParcel(
+                    cardType = MainUiCardTypes.KEY_VALUE_LIST,
+                    cardId = "aster-event",
+                    title = "Latest Local Event",
+                    subtitle = state.getString("event_id") ?: "No local Event committed.",
+                ),
+            ),
+        )
+        return when (
+            val result = MainUiSchemaContractValidator.validate(
+                schema,
+                strictV1CardTypesOnly = true,
+            )
+        ) {
+            is ContractValidationResult.Ok -> result.value
+            is ContractValidationResult.Err -> MainUiSchemaContractValidator.sanitize(schema)
+        }
+    }
 
     override fun getMainUiState() = AsterPluginRuntime.getMainUiState()
+
+    private fun hostedSubtitle(message: String): String {
+        val bytes = message.toByteArray(Charsets.UTF_8)
+        var end = minOf(bytes.size, WearTakPluginContract.MAX_MAIN_UI_TITLE_BYTES)
+        // The bundled SDK's helper can retain a partial leading byte at this boundary.
+        while (end > 0 && end < bytes.size && bytes[end].toInt() and 0xc0 == 0x80) {
+            end--
+        }
+        return String(bytes, 0, end, Charsets.UTF_8)
+    }
 
     override fun invokeMainUiAction(actionId: String?, args: Bundle?) {
         guard.command(
             operation = "invokeMainUiAction",
             onShutdown = { emitIllegalState("invokeMainUiAction") },
         ) {
-            if (args != null && !args.isEmpty) {
+            if (lifecycle.snapshot() != PluginLifecycleState.RUNNING) {
+                AsterPluginRuntime.rejectAction(
+                    actionId ?: "unknown",
+                    "Start the Aster plugin before invoking host actions.",
+                )
+            } else if (args != null && !args.isEmpty) {
                 AsterPluginRuntime.rejectAction(
                     actionId ?: "unknown",
                     "This evaluation action accepts no arguments.",
